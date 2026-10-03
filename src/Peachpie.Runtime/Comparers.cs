@@ -21,7 +21,7 @@ namespace Pchp.Core
         /// <summary>Numeric comparer.</summary>
         public static readonly KeyComparer Numeric = new KeyComparer(PhpNumericComparer.Default, false);
         /// <summary>String comparer.</summary>
-        public static KeyComparer String(Context ctx) => new KeyComparer(new PhpStringComparer(ctx), false);
+        public static KeyComparer String(Context ctx, bool caseInsensitive) => new KeyComparer(new PhpStringComparer(ctx, caseInsensitive), false);
         /// <summary>Array keys comparer.</summary>
         public static readonly KeyComparer ArrayKeys = new KeyComparer(PhpArrayKeysComparer.Default, false);
         /// <summary>Regular comparer with reverse order.</summary>
@@ -29,7 +29,7 @@ namespace Pchp.Core
         /// <summary>Numeric comparer with reverse order.</summary>
         public static readonly KeyComparer ReverseNumeric = new KeyComparer(PhpNumericComparer.Default, true);
         /// <summary>String comparer with reverse order.</summary>
-        public static KeyComparer ReverseString(Context ctx) => new KeyComparer(new PhpStringComparer(ctx), true);
+        public static KeyComparer ReverseString(Context ctx, bool caseInsensitive) => new KeyComparer(new PhpStringComparer(ctx, caseInsensitive), true);
         /// <summary>Locale string comparer with reverse order.</summary>
         public static readonly KeyComparer ReverseArrayKeys = new KeyComparer(PhpArrayKeysComparer.Default, true);
 
@@ -88,13 +88,13 @@ namespace Pchp.Core
         /// <summary>Numeric comparer.</summary>
         public static readonly ValueComparer Numeric = new ValueComparer(PhpNumericComparer.Default, false);
         /// <summary>String comparer.</summary>
-        public static ValueComparer String(Context ctx) => new ValueComparer(new PhpStringComparer(ctx), false);
+        public static ValueComparer String(Context ctx, bool caseInsensitive = false) => new ValueComparer(new PhpStringComparer(ctx, caseInsensitive), false);
         /// <summary>Regular comparer with reverse order.</summary>
         public static readonly ValueComparer Reverse = new ValueComparer(PhpComparer.Default, true);
         /// <summary>Numeric comparer with reverse order.</summary>
         public static readonly ValueComparer ReverseNumeric = new ValueComparer(PhpNumericComparer.Default, true);
         /// <summary>String comparer with reverse order.</summary>
-        public static ValueComparer ReverseString(Context ctx) => new ValueComparer(new PhpStringComparer(ctx), true);
+        public static ValueComparer ReverseString(Context ctx, bool caseInsensitive = false) => new ValueComparer(new PhpStringComparer(ctx, caseInsensitive), true);
 
         /// <summary>The comparer which will be used to compare values.</summary>
         private IComparer<PhpValue>/*!*/ comparer;
@@ -319,23 +319,44 @@ namespace Pchp.Core
     {
         readonly Context _ctx;
 
-        /// <summary>Prevents from creating instances of this class.</summary>
-        public PhpStringComparer(Context ctx)
+        readonly bool _caseInsensitive;
+
+        public PhpStringComparer(Context ctx, bool caseInsensitive = false)
         {
             _ctx = ctx;
+            _caseInsensitive = caseInsensitive;
         }
+
+        string ToStringQuiet(PhpValue obj)
+        {
+            switch (obj.TypeCode)
+            {
+                case PhpTypeCode.PhpArray: return PhpArray.PrintablePhpTypeName; // quietly treat as "Array" string
+                case PhpTypeCode.String: return obj.String;
+                case PhpTypeCode.Alias: return ToStringQuiet(obj.Alias.Value);
+                default: return obj.ToString(_ctx); // default behavior
+            }
+        }
+
+        StringComparison StringComparison => _caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
         /// <summary>
         /// Compares two objects in a manner of PHP string comparison.
         /// </summary>
         public int Compare(PhpValue x, PhpValue y)
         {
-            return string.CompareOrdinal(x.ToString(_ctx), y.ToString(_ctx));
+            return string.Compare(ToStringQuiet(x), ToStringQuiet(y), this.StringComparison);
         }
 
-        public bool Equals(PhpValue x, PhpValue y) => string.Equals(x.ToString(_ctx), y.ToString(_ctx), StringComparison.Ordinal);
+        public bool Equals(PhpValue x, PhpValue y)
+        {
+            return string.Equals(ToStringQuiet(x), ToStringQuiet(y), this.StringComparison);
+        }
 
-        public int GetHashCode(PhpValue obj) => StringComparer.Ordinal.GetHashCode(obj.ToString(_ctx));
+        public int GetHashCode(PhpValue obj)
+        {
+            return string.GetHashCode(ToStringQuiet(obj), this.StringComparison);
+        }
     }
 
     #endregion

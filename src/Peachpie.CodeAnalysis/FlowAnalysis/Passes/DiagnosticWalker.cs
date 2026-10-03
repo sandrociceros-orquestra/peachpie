@@ -124,34 +124,6 @@ namespace Pchp.CodeAnalysis.FlowAnalysis.Passes
 
         private void CheckParams()
         {
-            // Check the compatibility of type hints with PhpDoc, if both exist
-            if (_routine.PHPDocBlock != null)
-            {
-                for (int i = 0; i < _routine.SourceParameters.Length; i++)
-                {
-                    var param = _routine.SourceParameters[i];
-
-                    //// Consider only parameters passed by value, with both typehints and PHPDoc comments
-                    //if (!param.Syntax.IsOut && !param.Syntax.PassedByRef
-                    //    && param.Syntax.TypeHint != null
-                    //    && param.PHPDocOpt != null && param.PHPDocOpt.TypeNamesArray.Length != 0)
-                    //{
-                    //    var tmask = PHPDoc.GetTypeMask(TypeCtx, param.PHPDocOpt.TypeNamesArray, _routine.GetNamingContext());
-                    //    if (!tmask.IsVoid && !tmask.IsAnyType)
-                    //    {
-                    //        var hintType = param.Type;
-                    //        var docType = DeclaringCompilation.GetTypeFromTypeRef(TypeCtx, tmask);
-                    //        if (!docType.IsOfType(hintType))  // REVIEW: not correct, CLR type might result in PhpValue or anything else which is never "of type" specified in PHPDoc
-                    //        {
-                    //            // PHPDoc type is incompatible with type hint
-                    //            _diagnostics.Add(_routine, param.Syntax, ErrorCode.WRN_ParamPhpDocTypeHintIncompatible,
-                    //                param.PHPDocOpt.TypeNames, param.Name, param.Syntax.TypeHint);
-                    //        }
-                    //    }
-                    //}
-                }
-            }
-
             // check source parameters
             var srcparams = _routine.SourceParameters;
             foreach (var p in srcparams)
@@ -203,7 +175,7 @@ namespace Pchp.CodeAnalysis.FlowAnalysis.Passes
                                 return TypeCtx.IsAString(valuetype);
 
                             case PrimitiveTypeRef.PrimitiveType.@object:
-                                return false;
+                                return TypeCtx.IsObject(valuetype);
 
                             case PrimitiveTypeRef.PrimitiveType.@float:
                             case PrimitiveTypeRef.PrimitiveType.@int:
@@ -212,7 +184,7 @@ namespace Pchp.CodeAnalysis.FlowAnalysis.Passes
                     }
                     else if (thint is ClassTypeRef classtref)
                     {
-                        return false; // cannot have default value other than NULL
+                        //return false; // cannot have default value other than NULL
                     }
                 }
             }
@@ -536,11 +508,15 @@ namespace Pchp.CodeAnalysis.FlowAnalysis.Passes
 
                         if (i == ps.Length - 1 && p.IsParams) // vararg
                         {
-                            // handle [Params]
-                            // - resolve the SZArray element type
+                            // handle params:
+                            // - resolve the params element type
                             // - check the all the arguments
-                            Debug.Assert(p.Type.IsSZArray(), "[Params] parameter expected to be of type Array.");
-                            var elementType = (p.Type as ArrayTypeSymbol)?.ElementType;
+
+                            var elementType =
+                                p.IsParamsArray && p.Type != null ? ((ArrayTypeSymbol)p.Type).ElementType : // params T[]
+                                p.IsParamsCollection && p.Type != null ? ((ConstructedNamedTypeSymbol)p.Type).TypeArguments[0] : // params ReadOnlySpan< T >
+                                null;
+
                             if (elementType != null)
                             {
                                 int varargIndex = 0;

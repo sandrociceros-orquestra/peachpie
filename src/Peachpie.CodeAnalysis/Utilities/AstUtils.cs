@@ -13,6 +13,11 @@ using Pchp.CodeAnalysis.Symbols;
 using Microsoft.CodeAnalysis;
 using Pchp.CodeAnalysis.Semantics;
 using System.Runtime.InteropServices;
+using Devsense.PHP.Ast.DocBlock;
+using Pchp.CodeAnalysis.FlowAnalysis;
+using Pchp.CodeAnalysis.Semantics.Graph;
+using Peachpie.CodeAnalysis.Syntax;
+using static Peachpie.CodeAnalysis.Syntax.PhpTokenProvider;
 
 namespace Pchp.CodeAnalysis
 {
@@ -64,52 +69,14 @@ namespace Pchp.CodeAnalysis
         }
 
         /// <summary>
-        /// Fixes <see cref="ItemUse"/> so it propagates correctly through our visitor.
-        /// </summary>
-        /// <remarks><c>IsMemberOf</c> will be set on Array, not ItemUse itself.</remarks>
-        public static void PatchItemUse(ItemUse item)
-        {
-            if (item.IsMemberOf != null)
-            {
-                var varlike = item.Array as VarLikeConstructUse;
-
-                Debug.Assert(varlike != null);
-                Debug.Assert(varlike.IsMemberOf == null);
-
-                // fix this ast weirdness:
-                varlike.IsMemberOf = item.IsMemberOf;
-                item.IsMemberOf = null;
-            }
-        }
-
-        /// <summary>
-        /// Creates new struct with updated <see cref="CompleteToken.TokenText"/>.
-        /// </summary>
-        public static CompleteToken WithTokenText(this CompleteToken t, string text)
-        {
-            return new CompleteToken(t.Token, t.TokenValue, t.TokenPosition, text);
-        }
-
-        /// <summary>
-        /// Creates new struct with updated <see cref="CompleteToken.TokenText"/>.
-        /// </summary>
-        public static CompleteToken WithToken(this CompleteToken t, Tokens token)
-        {
-            return new CompleteToken(token, t.TokenValue, t.TokenPosition, t.TokenText);
-        }
-
-        /// <summary>
         /// Gets value indicating the token is an ignored token - whitespace or comment.
         /// </summary>
-        public static bool IsWhitespace(this CompleteToken t) => t.Token == Tokens.T_WHITESPACE || t.Token == Tokens.T_COMMENT; // not T_DOC_COMMENT
+        internal static bool IsWhitespace(this TokenSnapshot t) => t.Token == Tokens.T_WHITESPACE || t.Token == Tokens.T_COMMENT; // not T_DOC_COMMENT
 
         /// <summary>
         /// Determines whether method has <c>$this</c> variable.
         /// </summary>
-        public static bool HasThisVariable(MethodDecl method)
-        {
-            return method != null && (method.Modifiers & PhpMemberAttributes.Static) == 0;
-        }
+        public static bool HasThisVariable(MethodDecl method) => method != null && (method.Modifiers & PhpMemberAttributes.Static) == 0;
 
         public static Span BodySpanOrInvalid(this AstNode routine)
         {
@@ -208,8 +175,14 @@ namespace Pchp.CodeAnalysis
 
         /// <summary>
         /// Attribute name determining the field below is app-static instead of context-static.
+        /// @appstatic
         /// </summary>
         public const string AppStaticTagName = "@appstatic";
+
+        /// <summary>
+        /// @deprecated
+        /// </summary>
+        public const string DeprecatedTagName = "@deprecated";
 
         /// <summary>
         /// Lookups notation determining given field as app-static instead of context-static.
@@ -223,9 +196,14 @@ namespace Pchp.CodeAnalysis
                 var phpdoc = field.PHPDoc;
                 if (phpdoc != null)
                 {
-                    return phpdoc.Elements
-                        .OfType<PHPDocBlock.UnknownTextTag>()
-                        .Any(t => t.TagName.Equals(AppStaticTagName, StringComparison.OrdinalIgnoreCase));
+                    foreach (var entry in phpdoc)
+                    {
+                        // @appstatic
+                        if (entry.IsDocTag(AppStaticTagName))
+                        {
+                            return true;
+                        }
+                    }
                 }
             }
 
@@ -275,7 +253,7 @@ namespace Pchp.CodeAnalysis
         /// <summary>
         /// Traverses AST and finds closest parent element of desired type.
         /// </summary>
-        public static T FindParentLangElement<T>(LangElement node) where T : LangElement
+        public static T FindParentLangElement<T>(ILangElement node) where T : ILangElement
         {
             while (node != null && !(node is T))
             {
@@ -288,7 +266,7 @@ namespace Pchp.CodeAnalysis
         /// <summary>
         /// Gets containing routine element (function, method or lambda).
         /// </summary>
-        public static LangElement GetContainingRoutine(this LangElement element)
+        public static ILangElement GetContainingRoutine(this ILangElement element)
         {
             while (!(element is MethodDecl || element is FunctionDecl || element is LambdaFunctionExpr || element is GlobalCode || element == null))
             {
@@ -312,7 +290,7 @@ namespace Pchp.CodeAnalysis
                 int clauseStart = declStmt.Span.Start;
                 int blockStart = declStmt.Statement.Span.Start;
                 var searchSpan = new Span(clauseStart, blockStart - clauseStart);
-                string searchText = declStmt.ContainingSourceUnit.GetSourceCode(searchSpan);
+                var searchText = ((IPhpSourceUnit)declStmt.ContainingSourceUnit).GetSourceCode(searchSpan);
                 int clauseLength = searchText.LastIndexOf(')') + 1;
 
                 return new Microsoft.CodeAnalysis.Text.TextSpan(clauseStart, clauseLength);
@@ -345,19 +323,50 @@ namespace Pchp.CodeAnalysis
             return default;
         }
 
+        public static bool TryGetPath(this BoundBlock block, out string path, out int line)
+        {
+            path = null;
+            line = -1;
+
+            if (block != null)
+            {
+                if (block.PhpSyntax != null)
+                {
+                    var unit = block.PhpSyntax.ContainingSourceUnit;
+                    if (unit != null)
+                    {
+                        path = unit.FilePath;
+
+                        if (block.PhpSyntax.Span.IsValid)
+                        {
+                            line = unit.GetLineFromPosition(block.PhpSyntax.Span.Start);
+                        }
+                    }
+
+                    //if (path == null && block.FlowState?.Routine != null)
+                    //{
+                    //    path = block.FlowState.Routine...
+                    //}
+                }
+            }
+
+            //
+            return path != null;
+        }
+
         sealed class ElementVisitor<TElement> : TreeVisitor
             where TElement : LangElement
         {
-            readonly Func<LangElement, bool> _acceptPredicate;
+            readonly Func<ILangElement, bool> _acceptPredicate;
 
             public List<TElement> Result { get; } = new List<TElement>();
 
-            public ElementVisitor(Func<LangElement, bool> acceptPredicate)
+            public ElementVisitor(Func<ILangElement, bool> acceptPredicate)
             {
                 _acceptPredicate = acceptPredicate;
             }
 
-            public override void VisitElement(LangElement element)
+            public override void VisitElement(ILangElement element)
             {
                 if (element is TElement x)
                 {
@@ -374,7 +383,7 @@ namespace Pchp.CodeAnalysis
         /// <summary>
         /// Gets all elements of given type.
         /// </summary>
-        public static List<TElement> SelectElements<TElement>(this LangElement root, Func<LangElement, bool> acceptPredicate)
+        public static List<TElement> SelectElements<TElement>(this LangElement root, Func<ILangElement, bool> acceptPredicate)
             where TElement : LangElement
         {
             var visitor = new ElementVisitor<TElement>(acceptPredicate);
@@ -391,6 +400,27 @@ namespace Pchp.CodeAnalysis
             return root.SelectElements<DirectVarUse>(
                 scope => !(scope is FunctionDecl || scope is ILambdaExpression || scope is TypeDecl || scope is MethodDecl) || scope == root)
                 .Where(dvar => dvar.IsMemberOf == null && !dvar.VarName.IsAutoGlobal && !dvar.VarName.IsThisVariableName);
+        }
+        
+        public static string SummaryOrDefault(this IDocBlock doc, string @default = null) =>
+            doc?.HasSummary(out var summary) == true
+            ? summary
+            : @default
+            ;
+
+        /// <summary>
+        /// Trims trailing <c>,</c> parameter.
+        /// </summary>
+        public static ReadOnlySpan<FormalParam> FormalParamsFixed(this Signature sig)
+        {
+            var fp = sig.FormalParams.AsSpan();
+
+            if (fp.Length > 0 && fp[fp.Length - 1] == null)
+            {
+                fp = fp[..^1];
+            }
+
+            return fp;
         }
     }
 }

@@ -10,6 +10,7 @@ using System.Xml.Resolvers;
 using HtmlAgilityPack;
 using Pchp.Core;
 using Pchp.Core.Utilities;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Peachpie.Library.XmlDom
 {
@@ -375,14 +376,21 @@ namespace Peachpie.Library.XmlDom
 
                     // <element
                     var element = AppendChildElement(containing, xmldoc.CreateElement(name));
+                    var element_attrs = element.Attributes;
 
                     // attributes
                     var attrs = node.Attributes;
                     for (int ai = 0; ai < attrs.Count; ai++)
                     {
+                        if (element_attrs == null)
+                        {
+                            PhpException.Throw(PhpError.Notice, "Attributes ignored.");
+                            continue;
+                        }
+
                         var element_attr = CreateAttributeFromHtml(xmldoc, attrs[ai]);
 
-                        element.Attributes.Append(element_attr);
+                        element_attrs.Append(element_attr);
 
                         // add the attribute to the attribute ID map:
                         phpdoc?.HandleNewAttribute(element_attr);
@@ -508,7 +516,7 @@ namespace Peachpie.Library.XmlDom
         /// <summary>
         /// Parses the DOCTYPE comment if possible.
         /// </summary>
-        public static bool TryParseDocumentType(string text, out string? name, out string? publicId, out string? systemId, out string? subset)
+        public static bool TryParseDocumentType(string text, [MaybeNullWhen(false)]out string name, out string? publicId, out string? systemId, out string? subset)
         {
             name = publicId = systemId = subset = null;
 

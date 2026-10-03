@@ -513,7 +513,7 @@ namespace Pchp.Library
 
                 // prepare arguments
                 {
-                    var arguments = StringBuilderUtilities.Pool.Get();
+                    var arguments = ObjectPools.GetStringBuilder();
 
                     if (CurrentPlatform.IsWindows)
                     {
@@ -528,7 +528,7 @@ namespace Pchp.Library
 
                     AppendArgument(arguments, command);
 
-                    p.StartInfo.Arguments = StringBuilderUtilities.GetStringAndReturn(arguments);
+                    p.StartInfo.Arguments = ObjectPools.GetStringAndReturn(arguments);
                 }
 
                 p.StartInfo.UseShellExecute = false;
@@ -545,7 +545,7 @@ namespace Pchp.Library
 
                     case OutputHandling.ArrayOfLines:
                         {
-                            string line;
+                            string? line;
                             while ((line = p.StandardOutput.ReadLine()) != null)
                             {
                                 arrayOutput?.Add(line);
@@ -556,7 +556,7 @@ namespace Pchp.Library
 
                     case OutputHandling.FlushLinesToScriptOutput:
                         {
-                            string line;
+                            string? line;
                             while ((line = p.StandardOutput.ReadLine()) != null)
                             {
                                 stringOutput = line;

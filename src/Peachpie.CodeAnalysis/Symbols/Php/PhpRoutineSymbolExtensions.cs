@@ -1,4 +1,5 @@
-﻿using Devsense.PHP.Syntax;
+﻿using Devsense.PHP.Ast.DocBlock;
+using Devsense.PHP.Syntax;
 using Devsense.PHP.Syntax.Ast;
 using Microsoft.CodeAnalysis;
 using Pchp.CodeAnalysis.FlowAnalysis;
@@ -78,22 +79,8 @@ namespace Pchp.CodeAnalysis.Symbols
             if (IsNotOverriding(routine))
             {
                 // /** @return */
-                var typeCtx = routine.TypeRefContext;
-                if (routine.PHPDocBlock != null && (compilation.Options.PhpDocTypes & PhpDocTypes.ReturnTypes) != 0)
-                {
-                    var returnTag = routine.PHPDocBlock.Returns;
-                    if (returnTag != null && returnTag.TypeNames.Length != 0)
-                    {
-                        var tmask = PHPDoc.GetTypeMask(typeCtx, returnTag.TypeNamesArray, routine.GetNamingContext());
-                        if (!tmask.IsVoid && !tmask.IsAnyType)
-                        {
-                            return compilation.GetTypeFromTypeRef(typeCtx, tmask);
-                        }
-                    }
-                }
-
                 // determine from code flow
-                return compilation.GetTypeFromTypeRef(typeCtx, routine.ResultTypeMask);
+                return compilation.GetTypeFromTypeRef(routine.TypeRefContext, routine.ResultTypeMask);
             }
             else
             {
@@ -215,9 +202,11 @@ namespace Pchp.CodeAnalysis.Symbols
                 }
 
                 //
-                var phpparam = p.IsParams
-                    ? new PhpParam(p, index++, TypeRefMask.AnyType.WithIsRef(((ArrayTypeSymbol)p.Type).ElementType.Is_PhpAlias()))
-                    : new PhpParam(p, index++, TypeRefFactory.CreateMask(ctx, p.Type, notNull: p.HasNotNull));
+                var phpparam =
+                    p.IsParamsArray ? new PhpParam(p, index++, TypeRefMask.AnyType.WithIsRef(((ArrayTypeSymbol)p.Type).ElementType.Is_PhpAlias())) :
+                    p.IsParamsCollection ? new PhpParam(p, index++, TypeRefMask.AnyType.WithIsRef(((ConstructedNamedTypeSymbol)p.Type).TypeArguments[0].Is_PhpAlias())) :
+                    new PhpParam(p, index++, TypeRefFactory.CreateMask(ctx, p.Type, notNull: p.HasNotNull))
+                    ;
 
                 result ??= new List<PhpParam>(ps.Length);
                 result.Add(phpparam);
@@ -379,7 +368,7 @@ namespace Pchp.CodeAnalysis.Symbols
         /// <summary>
         /// Gets PHPDoc assoviated with given source symbol.
         /// </summary>
-        internal static bool TryGetPHPDocBlock(this Symbol symbol, out PHPDocBlock phpdoc)
+        internal static bool TryGetPHPDocBlock(this Symbol symbol, out IDocBlock phpdoc)
         {
             phpdoc = symbol?.OriginalDefinition switch
             {

@@ -13,6 +13,7 @@ using Devsense.PHP.Syntax;
 using Microsoft.Cci;
 using System.Threading;
 using System.Diagnostics;
+using Devsense.PHP.Ast.DocBlock;
 
 namespace Pchp.CodeAnalysis.Symbols
 {
@@ -66,7 +67,7 @@ namespace Pchp.CodeAnalysis.Symbols
 
         internal override AstNode Syntax => _syntax;
 
-        internal override PHPDocBlock PHPDocBlock => _syntax.PHPDoc;
+        internal override IDocBlock PHPDocBlock => _syntax.PHPDoc;
 
         internal override IList<Statement> Statements => _syntax.Body?.Statements;
 
@@ -134,8 +135,8 @@ namespace Pchp.CodeAnalysis.Symbols
                     }
                     if (_syntax.ReturnType != null)
                     {
-                        // {0} cannot declare a return type
-                        diagnostic.Add(this, _syntax.ReturnType.Span.ToTextSpan(), Errors.ErrorCode.ERR_CannotDeclareReturnType, _type.FullName.ToString(name, false));
+                        //// {0} cannot declare a return type
+                        //diagnostic.Add(this, _syntax.ReturnType.Span.ToTextSpan(), Errors.ErrorCode.ERR_CannotDeclareReturnType, _type.FullName.ToString(name, false)); // it seem it can
                     }
                 }
                 else if (name.IsCallName) // __call($name, $args)

@@ -7,38 +7,10 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Immutable;
 using Roslyn.Utilities;
+using AST = Devsense.PHP.Syntax.Ast;
 
 namespace Pchp.CodeAnalysis
 {
-    /// <summary>
-    /// Options for getting type information from correspodning PHPDoc comments.
-    /// </summary>
-    [Flags]
-    public enum PhpDocTypes
-    {
-        None = 0,
-
-        /// <summary>
-        /// Fields type will be declared according to PHPDoc @var tag.
-        /// </summary>
-        FieldTypes = 1,
-
-        /// <summary>
-        /// Parameter type will be declared according to PHPDoc @param tag.
-        /// </summary>
-        ParameterTypes = 2,
-
-        /// <summary>
-        /// Method return type will be declared according to PHPDoc @return tag.
-        /// </summary>
-        ReturnTypes = 4,
-
-        /// <summary>
-        /// Declare all additional type information from PHPDoc.
-        /// </summary>
-        All = FieldTypes | ParameterTypes | ReturnTypes,
-    }
-
     /// <summary>
     /// Represents various options that affect compilation, such as 
     /// whether to emit an executable or a library, whether to optimize
@@ -69,11 +41,6 @@ namespace Pchp.CodeAnalysis
         /// e.g. <c>.NETCoreApp,Version=v3.1</c>.
         /// </summary>
         public string TargetFramework { get; private set; }
-
-        /// <summary>
-        /// Options for getting type information from correspodning PHPDoc comments.
-        /// </summary>
-        public PhpDocTypes PhpDocTypes { get; private set; }
 
         /// <summary>
         /// Whether to generate an embedded resource containing additional information about the source symbols.
@@ -140,6 +107,11 @@ namespace Pchp.CodeAnalysis
         /// </summary>
         public override NullableContextOptions NullableContextOptions { get; protected set; }
 
+        /// <summary>
+        /// Source module attributes.
+        /// </summary>
+        public IReadOnlyList<AST.IAttributeElement> AssemblyAttributes { get; internal set; }
+
         ///// <summary>
         ///// Flags applied to the top-level binder created for each syntax tree in the compilation 
         ///// as well as for the binder of global imports.
@@ -178,7 +150,6 @@ namespace Pchp.CodeAnalysis
             AssemblyIdentityComparer assemblyIdentityComparer = null,
             StrongNameProvider strongNameProvider = null,
             bool publicSign = false,
-            PhpDocTypes phpdocTypes = PhpDocTypes.None,
             bool embedSourceMetadata = true,
             ImmutableArray<Diagnostic> diagnostics = default,
             PhpParseOptions parseOptions = null,
@@ -201,7 +172,6 @@ namespace Pchp.CodeAnalysis
                    strongNameProvider: strongNameProvider,
                    metadataImportOptions: MetadataImportOptions.Public,
                    publicSign: publicSign,
-                   phpdocTypes: phpdocTypes,
                    embedSourceMetadata: embedSourceMetadata,
                    diagnostics: diagnostics,
                    defines: defines,
@@ -244,7 +214,6 @@ namespace Pchp.CodeAnalysis
             StrongNameProvider strongNameProvider,
             MetadataImportOptions metadataImportOptions,
             bool publicSign,
-            PhpDocTypes phpdocTypes,
             bool embedSourceMetadata,
             ImmutableArray<Diagnostic> diagnostics,
             PhpParseOptions parseOptions,
@@ -262,7 +231,6 @@ namespace Pchp.CodeAnalysis
             this.SdkDirectory = sdkDirectory;
             this.SubDirectory = subDirectory;
             this.TargetFramework = targetFramework;
-            this.PhpDocTypes = phpdocTypes;
             this.EmbedSourceMetadata = embedSourceMetadata;
             this.ParseOptions = parseOptions;
             this.Diagnostics = diagnostics;
@@ -304,7 +272,6 @@ namespace Pchp.CodeAnalysis
             metadataImportOptions: other.MetadataImportOptions,
             reportSuppressedDiagnostics: other.ReportSuppressedDiagnostics,
             publicSign: other.PublicSign,
-            phpdocTypes: other.PhpDocTypes,
             embedSourceMetadata: other.EmbedSourceMetadata,
             diagnostics: other.Diagnostics,
             parseOptions: other.ParseOptions,
@@ -316,6 +283,7 @@ namespace Pchp.CodeAnalysis
             Autoload_ClassMapFiles = other.Autoload_ClassMapFiles;
             Autoload_Files = other.Autoload_Files;
             Autoload_PSR4 = other.Autoload_PSR4;
+            AssemblyAttributes = other.AssemblyAttributes;
         }
 
         public override string Language => Constants.PhpLanguageName;

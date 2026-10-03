@@ -232,8 +232,8 @@ namespace Pchp.Library
                 return (currentReplacement != null && index >= 0 && index < currentReplacement.Length);
             }
 
-            private static Dictionary<char, string>/*!!*/transliterations;
-            internal static int transliterationsMaxCharCount;
+            private static readonly Dictionary<char, string>/*!!*/transliterations;
+            internal static readonly int transliterationsMaxCharCount;
 
             static TranslitEncoderFallbackBuffer()
             {
@@ -242,7 +242,7 @@ namespace Pchp.Library
                 // initialize the transliterations table:
 
                 // load "translit.def" file content:
-                using (var translit = new System.IO.StreamReader(typeof(PhpIconv).Assembly.GetManifestResourceStream("Pchp.Library.Resources.translit.def")))
+                using (var translit = new System.IO.StreamReader(Resources.LibResources.GetManifestResourceStreamOrThrow("translit.def")))
                 {
                     string line;
                     while ((line = translit.ReadLine()) != null)
@@ -895,7 +895,7 @@ namespace Pchp.Library
             string footer = "?=";
 
             //
-            var result = StringBuilderUtilities.Pool.Get();
+            var result = ObjectPools.GetStringBuilder();
 
             result.Append(field_name);
             result.Append(':');
@@ -957,7 +957,7 @@ namespace Pchp.Library
             result.Append(footer);
 
             //
-            return StringBuilderUtilities.GetStringAndReturn(result);
+            return ObjectPools.GetStringAndReturn(result);
         }
 
         /// <summary>
@@ -1000,7 +1000,7 @@ namespace Pchp.Library
         /// </summary>
         static string QuotedPrintableEncode(byte[] bytes, int from, int count)
         {
-            var result = StringBuilderUtilities.Pool.Get();
+            var result = ObjectPools.GetStringBuilder();
 
             for (int i = from; i < bytes.Length && count > 0; i++, count--)
             {
@@ -1022,7 +1022,7 @@ namespace Pchp.Library
             }
 
             //
-            return StringBuilderUtilities.GetStringAndReturn(result);
+            return ObjectPools.GetStringAndReturn(result);
         }
     }
 }

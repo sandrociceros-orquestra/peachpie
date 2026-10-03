@@ -12,15 +12,41 @@ using System.Threading.Tasks;
 using Pchp.CodeAnalysis.Semantics;
 using System.Runtime.CompilerServices;
 using Pchp.Core.Collections;
+using Pchp.Core.Utilities;
 
 namespace Pchp.Core.Dynamic
 {
     [DebuggerNonUserCode]
     internal static class BinderHelpers
     {
-        public static bool IsParamsParameter(this ParameterInfo p)
+        public static bool IsParamsParameter(this ParameterInfo p, out Type elementType)
         {
-            return p.ParameterType.IsArray && p.CustomAttributes.Any(attr => attr.AttributeType == typeof(ParamArrayAttribute));
+            if (p.ParameterType.IsArray)
+            {
+                // [ParamArray] T[]
+                if (p.CustomAttributes.Any(attr => attr.AttributeType == typeof(ParamArrayAttribute)))
+                {
+                    elementType = p.ParameterType.GetElementType();
+                    return true;
+                }
+            }
+            else if (p.ParameterType.IsConstructedGenericType && p.CustomAttributes.Any(attr => attr.AttributeType.Name == "ParamCollectionAttribute"))   // [ParamCollectionAttribute] Span<T>
+            {
+                var def_args = p.ParameterType.GenericTypeArguments;
+                if (def_args.Length == 1)
+                {
+                    var def = p.ParameterType.GetGenericTypeDefinition();
+                    if (def == typeof(Span<>) || def == typeof(ReadOnlySpan<>))
+                    {
+                        elementType = def_args[0]; // T
+                        return true;
+                    }
+                }
+            }
+
+            //
+            elementType = null;
+            return false;
         }
 
         /// <summary>
@@ -199,7 +225,7 @@ namespace Pchp.Core.Dynamic
                 !p.HasDefaultValue && // CLR default value
                 !p.IsOptional && // has [Optional} attribute
                 p.GetCustomAttribute<DefaultValueAttribute>() == null && // has [DefaultValue] attribute
-                !p.IsParamsParameter(); // is params
+                !p.IsParamsParameter(out _); // is params
         }
 
         /// <summary>
@@ -644,6 +670,14 @@ namespace Pchp.Core.Dynamic
                     // Template: Operators.SetValue(ref fld, (PhpValue)value)
                     expr = Expression.Call(Cache.Operators.SetValue_PhpValueRef_PhpValue, expr, ConvertExpression.Bind(rvalue, typeof(PhpValue), ctx));
                 }
+                else if (expr.Type.IsGenericType && expr.Type.GetGenericTypeDefinition() == typeof(ClrEvent<>))
+                {
+                    // Template: $object->eventHandler += rvalue; return rvalue;
+                    // rvalue is (eventHadler + callable)
+                    expr = Expression.Block(
+                        rvalue
+                    );
+                }
                 else
                 {
                     // Template: fld = value
@@ -859,7 +893,7 @@ namespace Pchp.Core.Dynamic
             // lookup a declared field
             if (TryResolveDeclaredProperty(type, classCtx, target == null, field, out var prop))
             {
-                if (access.Write() && prop.IsReadOnly)
+                if (access.Write() && prop.IsReadOnly && !(prop is PhpPropertyInfo.ClrEvent))
                 {
                     return BindInvalidPropertyAccess(type.Name, field, classCtx, prop);
                 }
@@ -1268,9 +1302,21 @@ namespace Pchp.Core.Dynamic
 
                 // regular parameter:
 
-                if (i == ps.Length - 1 && p.IsParamsParameter())
+                if (i == ps.Length - 1 && p.IsParamsParameter(out var elementType))
                 {
-                    boundargs[i] = args.BindParams(argi, p.ParameterType.GetElementType());
+                    var arg = args.BindParamsArray(argi, elementType);
+                    if (arg.Type != p.ParameterType)
+                    {
+                        // ReadOnlySpan -> Array
+                        if (arg.Type.IsGenericType && arg.Type.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>) && p.ParameterType.IsArray)
+                        {
+                            arg = Expression.Call(
+                                arg,
+                                arg.Type.GetMethod(nameof(ReadOnlySpan<PhpValue>.ToArray))
+                            );
+                        }
+                    }
+                    boundargs[i] = Expression.Convert(arg, p.ParameterType);
                 }
                 else
                 {
@@ -1356,6 +1402,23 @@ namespace Pchp.Core.Dynamic
                 // NOTE: instead of "HasToBeCalledNonVirtually" magic above, it would be great to just use ".call" opcode always (as of now Linq cannot do that)
 
                 //
+                var methodParameterTypes = method.GetParametersType();
+
+                for (var i = 0; i < methodParameterTypes.Length; i++)
+                {
+                    var targetType = methodParameterTypes[i];
+                    var source = boundargs[i];
+                    
+                    if (source.Type == targetType)
+                        continue;
+
+                    if (source.Type == typeof(ReadOnlySpan<PhpValue>) && targetType == typeof(PhpValue[]))
+                        boundargs[i] = Expression.Call(boundargs[i], Cache.Operators.ReadOnlySpanPhpValue_ToArray);
+                    else if(source.Type == typeof(PhpValue[]) && targetType == typeof(ReadOnlySpan<PhpValue>))
+                        boundargs[i] = Expression.Call(Cache.Operators.PhpValueArray_AsReadOnlySpan, boundargs[i]);
+
+                }
+                
                 methodcall = Expression.Call(instance, (MethodInfo)method, boundargs);
             }
 
@@ -1431,7 +1494,7 @@ namespace Pchp.Core.Dynamic
                     expressions.AsReadOnly()
                 );
             }
-
+            
             return methodcall;
         }
 
@@ -1535,7 +1598,7 @@ namespace Pchp.Core.Dynamic
             Debug.Assert(targets.All(t => t.IsStatic), "Only static methods can be bound to PhpCallable delegate.");
 
             // (Context ctx, PhpValue[] arguments)
-            var ps = new ParameterExpression[] { Expression.Parameter(typeof(Context), "ctx"), Expression.Parameter(typeof(PhpValue[]), "argv") };
+            var ps = new ParameterExpression[] { Expression.Parameter(typeof(Context), "ctx"), Expression.Parameter(typeof(ReadOnlySpan<PhpValue>), "argv") };
 
             // invoke targets
             var invocation = OverloadBinder.BindOverloadCall(typeof(PhpValue), null, targets, ps[0], ps[1], true);
@@ -1561,15 +1624,15 @@ namespace Pchp.Core.Dynamic
 
             //
 
-            var invoke = typeof(IPhpCallable).GetMethod("Invoke", BindingFlags.Public | BindingFlags.Instance);
+            // TODO: use Invoke(Context, ReadOnlySpan`1) for small number of arguments
 
             var ctxexpr = Expression.Constant(ctx);
-            var arguments = ps.Select(p => ConvertExpression.Bind(p, typeof(PhpValue), ctxexpr));
+            var arguments = ps.SelectToArray(p => ConvertExpression.Bind(p, typeof(PhpValue), ctxexpr));
 
             // Template: callable.Invoke(ctx, args)
             Expression invocation = Expression.Call(
                 instance: Expression.Constant(callable),
-                method: invoke,
+                method: Cache.Operators.IPhpCallable_Invoke_Context_PhpValueArray,
                 arguments: new Expression[] { ctxexpr, Expression.NewArrayInit(typeof(PhpValue), arguments) });
 
             // return type
@@ -1586,7 +1649,7 @@ namespace Pchp.Core.Dynamic
             var ps = new ParameterExpression[] {
                 Expression.Parameter(typeof(Context), "ctx"),
                 Expression.Parameter(typeof(object), "target"),
-                Expression.Parameter(typeof(PhpValue[]), "argv") };
+                Expression.Parameter(typeof(ReadOnlySpan<PhpValue>), "argv") };
 
             // invoke targets
             var invocation = OverloadBinder.BindOverloadCall(typeof(PhpValue), ps[1], methods, ps[0], ps[2], true, lateStaticType);
@@ -1602,7 +1665,7 @@ namespace Pchp.Core.Dynamic
             Debug.Assert(ctors.All(ctor => ctor?.DeclaringType == type));
 
             // (Context ctx, PhpValue[] arguments)
-            var ps = new ParameterExpression[] { Expression.Parameter(typeof(Context), "ctx"), Expression.Parameter(typeof(PhpValue[]), "argv") };
+            var ps = new ParameterExpression[] { Expression.Parameter(typeof(Context), "ctx"), Expression.Parameter(typeof(ReadOnlySpan<PhpValue>), "argv") };
 
             if (ctors.Length != 0)
             {

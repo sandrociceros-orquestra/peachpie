@@ -11,6 +11,8 @@ using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 using Pchp.CodeAnalysis.Utilities;
+using AST = Devsense.PHP.Syntax.Ast;
+using Devsense.PHP.Syntax;
 
 namespace Pchp.CodeAnalysis.CommandLine
 {
@@ -18,7 +20,13 @@ namespace Pchp.CodeAnalysis.CommandLine
     {
         public static PhpCommandLineParser Default { get; } = new PhpCommandLineParser();
 
+        static readonly HashSet<string> s_true_values = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "true", "1", "yes", "on"
+        };
+
         protected override string RegularFileExtension { get; } = Constants.ScriptFileExtension;
+
         protected override string ScriptFileExtension { get; } = Constants.ScriptFileExtension;
 
         internal PhpCommandLineParser()
@@ -26,7 +34,7 @@ namespace Pchp.CodeAnalysis.CommandLine
         {
         }
 
-        static bool TryParseOption2(string arg, out string name, out string value)
+        internal static bool TryParseOption2(string arg, out string name, out string value)
         {
             // additional support for "--argument:value"
             // TODO: remove once implemented in CodeAnalysis
@@ -71,6 +79,11 @@ namespace Pchp.CodeAnalysis.CommandLine
             // default behavior:
             return CommandLineParser.TryParseEncodingName(arg);
         }
+
+        /// <summary>
+        /// Gets value indicating the given string represents <c>true</c> option value.
+        /// </summary>
+        static bool IsTrueValue(string value) => value != null && s_true_values.Contains(value.Trim());
 
         IEnumerable<CommandLineSourceFile> ExpandFileArgument(string path, string baseDirectory, List<Diagnostic> diagnostics)
         {
@@ -165,6 +178,7 @@ namespace Pchp.CodeAnalysis.CommandLine
             var additionalFiles = new List<CommandLineSourceFile>();
             var embeddedFiles = new List<CommandLineSourceFile>();
             var managedResources = new List<ResourceDescription>();
+            var assemblyAttributes = new List<AST.IAttributeElement>();
             var defines = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             string outputDirectory = baseDirectory;
             string subDirectory = null;
@@ -180,7 +194,6 @@ namespace Pchp.CodeAnalysis.CommandLine
             PhpOptimizationLevel optimization = PhpOptimizationLevel.Debug;
             bool concurrentBuild = true;
             var diagnosticOptions = new Dictionary<string, ReportDiagnostic>();
-            PhpDocTypes phpdocTypes = PhpDocTypes.None;
             OutputKind outputKind = OutputKind.ConsoleApplication;
             bool optionsEnded = false;
             bool displayHelp = false, displayLogo = true;
@@ -202,15 +215,14 @@ namespace Pchp.CodeAnalysis.CommandLine
             var autoload_files = new HashSet<string>(StringComparer.InvariantCultureIgnoreCase);
             var autoload_psr4 = new List<(string prefix, string path)>();
 
-            if (sdkDirectoryOpt != null) referencePaths.Add(sdkDirectoryOpt);
+            if (!string.IsNullOrEmpty(sdkDirectoryOpt)) referencePaths.Add(sdkDirectoryOpt);
             if (!string.IsNullOrEmpty(additionalReferenceDirectories)) referencePaths.AddRange(additionalReferenceDirectories.Split(new char[] { ';' }, StringSplitOptions.RemoveEmptyEntries));
 
             foreach (string arg in flattenedArgs)
             {
                 Debug.Assert(optionsEnded || !arg.StartsWith("@", StringComparison.Ordinal));
 
-                string name, value;
-                if (optionsEnded || !TryParseOption2(arg, out name, out value))
+                if (optionsEnded || !TryParseOption2(arg, out var name, out var value))
                 {
                     sourceFiles.AddRange(ExpandFileArgument(arg, baseDirectory, diagnostics));
                     continue;
@@ -222,6 +234,18 @@ namespace Pchp.CodeAnalysis.CommandLine
                     case "help":
                         displayHelp = true;
                         continue;
+
+                    case "attach":
+                        if (IsTrueValue(value) || value == null)
+                        {
+                            Debugger.Launch();
+                        }
+                        else
+                        {
+                            diagnostics.Add(Errors.MessageProvider.Instance.CreateDiagnostic(Errors.ErrorCode.ERR_BadCompilationOptionValue, Location.None, name, value));
+
+                        }
+                        break;
 
                     case "d":
                     case "define":
@@ -271,7 +295,7 @@ namespace Pchp.CodeAnalysis.CommandLine
                         // unused, parsed for backward compat only
                         if (!string.IsNullOrEmpty(value))
                         {
-                            switch (value.ToLower())
+                            switch (value.ToLowerInvariant())
                             {
                                 case "full":
                                 case "pdbonly":
@@ -282,6 +306,11 @@ namespace Pchp.CodeAnalysis.CommandLine
                                     break;
                                 case "embedded":
                                     debugInformationFormat = DebugInformationFormat.Embedded;
+                                    break;
+                                case "none": // == /debug-
+                                    debugInformationFormat = DebugInformationFormat.PortablePdb;
+                                    emitPdb = false;
+                                    debugPlus = false;
                                     break;
                                 default:
                                     //AddDiagnostic(diagnostics, ErrorCode.ERR_BadDebugType, value);
@@ -584,23 +613,6 @@ namespace Pchp.CodeAnalysis.CommandLine
                         documentationPath = value ?? string.Empty;
                         break;
 
-                    case "phpdoctypes+":
-                        phpdocTypes = PhpDocTypes.All;
-                        break;
-                    case "phpdoctypes-":
-                        phpdocTypes = PhpDocTypes.None;
-                        break;
-                    case "phpdoctypes":
-                        if (value == null)
-                        {
-                            phpdocTypes = PhpDocTypes.All;
-                        }
-                        else
-                        {
-                            phpdocTypes = (PhpDocTypes)Enum.Parse(typeof(PhpDocTypes), value);
-                        }
-                        break;
-
                     case "modulename":
                         var unquotedModuleName = RemoveQuotesAndSlashes(value);
                         if (string.IsNullOrEmpty(unquotedModuleName))
@@ -725,6 +737,27 @@ namespace Pchp.CodeAnalysis.CommandLine
                         diagnostics.Add(Errors.MessageProvider.Instance.CreateDiagnostic(Errors.ErrorCode.ERR_BadCompilationOptionValue, Location.None, name, value));
                         break;
 
+                    case "attr":
+
+                        // FQN("value1","value2")
+
+                        if (string.IsNullOrWhiteSpace(value))
+                        {
+                            diagnostics.Add(Errors.MessageProvider.Instance.CreateDiagnostic(Errors.ErrorCode.ERR_SwitchNeedsValue, Location.None, name));
+                            break;
+                        }
+
+                        if (TryParseAttributeSpec(value.Trim(), out var attr))
+                        {
+                            assemblyAttributes.Add(attr);
+                        }
+                        else
+                        {
+                            diagnostics.Add(Errors.MessageProvider.Instance.CreateDiagnostic(Errors.ErrorCode.ERR_BadCompilationOptionValue, Location.None, name, value));
+                        }
+
+                        break;
+
                     default:
                         break;
                 }
@@ -835,7 +868,6 @@ namespace Pchp.CodeAnalysis.CommandLine
                 mainTypeName: mainTypeName,
                 scriptClassName: WellKnownMemberNames.DefaultScriptClassName,
                 versionString: versionString,
-                phpdocTypes: phpdocTypes,
                 parseOptions: parseOptions,
                 defines: defines.ToImmutableDictionary(),
                 diagnostics: diagnostics.AsImmutable(),
@@ -860,6 +892,7 @@ namespace Pchp.CodeAnalysis.CommandLine
                 Autoload_PSR4 = autoload_psr4,
                 Autoload_ClassMapFiles = autoload_classmapfiles,
                 Autoload_Files = autoload_files,
+                AssemblyAttributes = assemblyAttributes,
             };
 
             if (debugPlus)
@@ -1010,6 +1043,102 @@ namespace Pchp.CodeAnalysis.CommandLine
                     defines[pair.Remove(eq)] = pair.Substring(eq + 1);
                 }
             }
+        }
+
+        private static bool TryParseAttributeSpec(string value, out AST.IAttributeElement attr)
+        {
+            attr = null;
+
+            ReadOnlySpan<char> fqn;
+            var signature = new List<AST.ActualParam>();
+            var span = Devsense.PHP.Text.Span.Invalid;
+
+            // FQN("value1","value2")
+            var parenIdx = value.IndexOf('(');
+            if (parenIdx >= 0)
+            {
+                fqn = value.AsSpan(0, parenIdx);
+
+                var args = value.AsSpan(parenIdx).Trim();
+
+                bool ConsumeChar(ref ReadOnlySpan<char> text, char ch)
+                {
+                    if (text.Length != 0 && text[0] == ch)
+                    {
+                        text = text.Slice(1);
+                        return true;
+                    }
+                    return false;
+                }
+
+                bool ConsumeArg(ref ReadOnlySpan<char> text, out AST.ActualParam p)
+                {
+                    p = default(AST.ActualParam);
+
+                    if (!ConsumeChar(ref text, '"')) return false;
+
+                    var str = new StringBuilder();
+                    var escaped = false;
+                    var closed = false;
+                    while (text.Length != 0)
+                    {
+                        var ch = text[0];
+                        text = text.Slice(1);
+
+                        if (escaped) { }
+                        else if (ch == '\\') { escaped = true; continue; }
+                        else if (ch == '"') { closed = true; break; }
+
+                        str.Append(ch);
+                    }
+
+                    if (!closed)
+                    {
+                        return false;
+                    }
+
+                    p = new AST.ActualParam(
+                        Devsense.PHP.Text.Span.Invalid,
+                        AST.StringLiteral.Create(Devsense.PHP.Text.Span.Invalid, str.ToString())
+                    );
+                    return true;
+                }
+
+                if (ConsumeChar(ref args, '('))
+                {
+                    do
+                    {
+                        if (ConsumeChar(ref args, ')')) break;
+                        if (ConsumeChar(ref args, ',')) continue;
+                        if (ConsumeArg(ref args, out var p))
+                        {
+                            signature.Add(p);
+                            continue;
+                        }
+                        break;
+                    } while (args.Length != 0);
+                }
+
+                if (args.IsWhiteSpace() == false)
+                    return false; // unexpected
+            }
+            else
+            {
+                fqn = value.AsSpan();
+            }
+
+            if (fqn.IsWhiteSpace())
+            {
+                return false;
+            }
+
+            //
+            attr = new AST.AttributeElement(
+                span,
+                new AST.ClassTypeRef(span, QualifiedName.Parse(fqn.Trim().ToString().Replace('.', QualifiedName.Separator), true)),
+                new AST.CallSignature(signature.ToArray(), span)
+            );
+            return true;
         }
 
         internal override void GenerateErrorForNoFilesFoundInRecurse(string path, IList<Diagnostic> errors)

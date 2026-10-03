@@ -308,7 +308,12 @@ namespace Pchp.Core
                     return Array.ToObject();
 
                 case PhpTypeCode.Object:
-                    return (Object is IPhpConvertible conv) ? conv.ToClass() : Object;
+                    return Object is IPhpConvertible conv
+                        ? conv.ToClass()
+                        //: Object is IStructBox structbox // CONSIDER: IStructBox is a regular PHP interface with conversions and methods, works well in PHP + it can have a IDynamicMetaObjectProvider
+                        //    ? structbox.BoxedValue  // box the value type
+                            : Object
+                        ;
 
                 case PhpTypeCode.Alias:
                     return Alias.Value.ToClass();
@@ -1281,6 +1286,8 @@ namespace Pchp.Core
                 if (value.GetType() == typeof(byte[])) return Create(new PhpString((byte[])value));
                 if (value.GetType() == typeof(decimal)) return Create((double)(decimal)value); // downcast to double
                 if (value.GetType() == typeof(IntStringKey)) return Create((IntStringKey)value);
+                if (value.GetType() == typeof(sbyte)) return Create((sbyte)value);
+                if (value.GetType() == typeof(short)) return Create((short)value);
 
                 // object        
                 //if (value is IStructBox box) return FromClass(box);

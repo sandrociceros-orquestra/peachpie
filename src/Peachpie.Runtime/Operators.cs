@@ -1200,9 +1200,9 @@ namespace Pchp.Core
 
             // 3. __get
             var getter = tinfo.RuntimeMethods[TypeMethods.MagicMethods.__get];
-            if (getter != null)
+            if (getter != null) // NOTE: magic methods must be public
             {
-                // return getter.Invoke(ctx, instance, propertyName);
+                return getter.Invoke(null/*expecting non-static PHP method which doesn't need Context, otherwise nullref exception*/, instance, propertyName);
             }
 
             // error
@@ -1936,7 +1936,7 @@ namespace Pchp.Core
 
         #endregion
 
-        #region Copy, Unpack
+        #region Copy, Unpack, AddRange
 
         /// <summary>
         /// Gets copy of given value.
@@ -2190,6 +2190,70 @@ namespace Pchp.Core
             }
         }
 
+        /// <summary>
+        /// Add values from <paramref name="spread"/>, expecting it to be an array or <see cref="Traversable"/>.
+        /// Implements spread operator <c>...</c>.
+        /// </summary>
+        /// <param name="array">Target array object.</param>
+        /// <param name="spread"><see cref="PhpArray"/>, <see cref="Traversable"/>, or <see cref="IEnumerable"/>.</param>
+        /// <remarks>
+        /// Throws error exception if <paramref name="spread"/> is not foreachable.
+        /// </remarks>
+        public static void AddRange(this PhpArray array, PhpValue spread)
+        {
+            if (array == null)
+            {
+                throw new ArgumentNullException(nameof(array));
+            }
+
+            switch (spread.TypeCode)
+            {
+                case PhpTypeCode.PhpArray:
+                    AddRange(array, other: spread.Array);
+                    break;
+                case PhpTypeCode.Object:
+
+                    var e = GetForeachEnumerator(spread.Object, false, default(RuntimeTypeHandle));
+                    while (e.MoveNext())
+                    {
+                        var value = e.CurrentValue.DeepCopy();
+                        if (e.CurrentKey.TryToIntStringKey(out var key) && key.IsString)
+                        {
+                            array[key] = value;
+                        }
+                        else
+                        {
+                            array.AddValue(value);
+                        }
+                    }
+                    
+                    break;
+                default:
+                    PhpException.Throw(PhpError.E_ERROR, ErrResources.unpack_argument_error, PhpVariable.GetTypeName(spread));
+                    break;
+            }
+        }
+
+        static void AddRange(this PhpArray array, PhpArray other)
+        {
+            // only string keys are preserved
+
+            var e = other.GetFastEnumerator();
+            while (e.MoveNext())
+            {
+                var value = e.CurrentValue.DeepCopy();
+                var key = e.CurrentKey;
+                if (key.IsString)
+                {
+                    array[key] = value;
+                }
+                else
+                {
+                    array.AddValue(value);
+                }
+            }
+        }
+
         #endregion
 
         #region ReadConstant
@@ -2256,7 +2320,7 @@ namespace Pchp.Core
 
         public static Context Context(this Closure closure) => closure._ctx;
 
-        /// <summary>Resolves late static bound type of closiure. Can be <c>null</c> reference.</summary>
+        /// <summary>Resolves late static bound type of closure. Can be <c>null</c> reference.</summary>
         public static PhpTypeInfo Static(this Closure closure)
         {
             if (closure._this != null)
@@ -2283,6 +2347,23 @@ namespace Pchp.Core
         /// Gets internal <see cref="IPhpCallable"/> object invoked by the closure.
         /// </summary>
         public static IPhpCallable Callable(this Closure closure) => closure._callable;
+
+        /// <summary>
+        /// Gets <see cref="IPhpCallable"/> interface for given <paramref name="routine"/>.
+        /// </summary>
+        /// <param name="targetInstance">Receiver object for the method non-static routine.</param>
+        /// <param name="routine">Routine.</param>
+        public static IPhpCallable AsCallable(object targetInstance, RoutineInfo routine)
+        {
+            if (targetInstance == null)
+            {
+                return routine;
+            }
+
+            return PhpCallback.Create(
+                (ctx, args) => routine.Invoke(ctx, targetInstance, args)
+            );
+        }
 
         #endregion
 
@@ -2426,43 +2507,6 @@ namespace Pchp.Core
 
         #endregion
 
-        #region BindTargetToMethod
-
-        /// <summary>
-        /// Helper lightweight class to reuse already bound <see cref="PhpInvokable"/> to be used as <see cref="PhpCallable"/>
-        /// by calling it on a given target.
-        /// </summary>
-        sealed class BoundTargetCallable : IPhpCallable
-        {
-            readonly object _target;
-            readonly PhpInvokable _invokable;
-
-            public BoundTargetCallable(object target, PhpInvokable invokable)
-            {
-                _target = target;
-                _invokable = invokable;
-            }
-
-            public PhpValue Invoke(Context ctx, params PhpValue[] arguments) => _invokable.Invoke(ctx, _target, arguments);
-
-            public PhpValue ToPhpValue() => PhpValue.Null;
-        }
-
-        /// <summary>
-        /// Creates an <see cref="IPhpCallable"/> from an instance method, binding the target to call the method on.
-        /// </summary>
-        public static IPhpCallable BindTargetToMethod(object targetInstance, RoutineInfo routine)
-        {
-            if (routine is PhpMethodInfo methodInfo)
-            {
-                return new BoundTargetCallable(targetInstance, methodInfo.PhpInvokable);
-            }
-
-            return PhpCallback.CreateInvalid();
-        }
-
-        #endregion
-
         #region Echo
 
         /// <summary>Echoes the value into the output.</summary>
@@ -2475,7 +2519,13 @@ namespace Pchp.Core
         public static void Echo(PhpString value, Context ctx) => ctx.Echo(value);
 
         /// <summary>Echoes the value into the output.</summary>
-        public static void Echo(byte[] value, Context ctx) => ctx.Echo(value); // TODO: NETSTANDARD2.1 // ReadOnlySpan<byte>
+        public static void Echo(byte[] value, Context ctx) => ctx.Echo(value);
+
+        /// <summary>Echoes the value into the output.</summary>
+        public static void Echo(ReadOnlySpan<byte> value, Context ctx) => ctx.Echo(value);
+
+        /// <summary>Echoes the value into the output.</summary>
+        public static void Echo(ReadOnlySpan<char> value, Context ctx) => ctx.Echo(value);
 
         /// <summary>Echoes the value into the output.</summary>
         public static void Echo(PhpNumber value, Context ctx) => ctx.Echo(value);

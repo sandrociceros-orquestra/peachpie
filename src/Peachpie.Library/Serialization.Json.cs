@@ -333,7 +333,7 @@ namespace Pchp.Library
 
                 public static string Serialize(Context ctx, PhpValue variable, JsonEncodeOptions encodeOptions, RuntimeTypeHandle caller, long depth)
                 {
-                    var str = StringBuilderUtilities.Pool.Get();
+                    var str = ObjectPools.GetStringBuilder();
 
                     try
                     {
@@ -994,7 +994,6 @@ namespace Pchp.Library
                             if ((phpoptions & JsonDecodeOptions.JSON_BIGINT_AS_STRING) != 0 && IsIntegerType(reader.ValueSpan))
                             {
                                 // big int encode as string
-                                //return Encoding.ASCII.GetString(reader.ValueSpan); // NETSTANDARD2.1: ReadOnlySpan<byte>
                                 return JsonEncodedText.Encode(reader.ValueSpan).ToString();
                             }
                             if (reader.TryGetDouble(out var d)) return d;

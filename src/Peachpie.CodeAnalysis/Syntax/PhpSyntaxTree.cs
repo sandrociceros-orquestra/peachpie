@@ -85,11 +85,15 @@ namespace Pchp.CodeAnalysis
 
             { new Version(8, 0), LanguageFeatures.Php80Set },
             { new Version(8, 1), LanguageFeatures.Php81Set },
+            { new Version(8, 2), LanguageFeatures.Php82Set },
+            { new Version(8, 3), LanguageFeatures.Php83Set },
+            { new Version(8, 4), LanguageFeatures.Php84Set },
+            { new Version(8, 5), LanguageFeatures.Php85Set },
         };
 
         public static Version LatestLanguageVersion => SupportedLanguageVersions.Max();
 
-        public static Version DefaultLanguageVersion => new Version(8, 0);
+        public static Version DefaultLanguageVersion => new Version(8, 4);
 
         public static IReadOnlyCollection<Version> SupportedLanguageVersions => s_langversions.Keys;
 
@@ -178,7 +182,7 @@ namespace Pchp.CodeAnalysis
             {
                 // Parser leaves factory.Root to null in the case of syntax errors -> create a proxy syntax node
                 var fullSpan = new Devsense.PHP.Text.Span(0, sourceText.Length);
-                result.Root = new GlobalCode(fullSpan, ImmutableArray<Statement>.Empty, unit);
+                result.Root = new GlobalCode(fullSpan, Array.Empty<Statement>(), unit);
             }
 
             //

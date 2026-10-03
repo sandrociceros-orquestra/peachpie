@@ -9,6 +9,7 @@ using Pchp.Library.Resources;
 using PerlRegex = Peachpie.Library.RegularExpressions;
 using Peachpie.Library.RegularExpressions;
 using System.Buffers;
+using Pchp.Core.Utilities;
 
 namespace Pchp.Library
 {
@@ -403,7 +404,7 @@ namespace Pchp.Library
                 GroupsToPhpArray(match.PcreGroups, false, false, matches_arr);
 
                 return callback
-                    .Invoke(ctx, (PhpValue)matches_arr)
+                    .Invoke(ctx, matches_arr)
                     .ToStringOrThrow(ctx);
             });
 
@@ -683,7 +684,7 @@ namespace Pchp.Library
                 {
                     if (result == null)
                     {
-                        result = StringBuilderUtilities.Pool.Get();
+                        result = ObjectPools.GetStringBuilder();
                     }
 
                     result.Append(str, lastEscape, i - lastEscape);
@@ -695,7 +696,7 @@ namespace Pchp.Library
             if (result != null)
             {
                 result.Append(str, lastEscape, str.Length - lastEscape);
-                return StringBuilderUtilities.GetStringAndReturn(result);
+                return ObjectPools.GetStringAndReturn(result);
             }
             else
             {

@@ -10,6 +10,7 @@ using System.Collections.Immutable;
 using Devsense.PHP.Text;
 using Microsoft.CodeAnalysis.Operations;
 using Peachpie.Library.RegularExpressions;
+using Devsense.PHP.Ast.DocBlock;
 
 namespace Pchp.CodeAnalysis.Symbols
 {
@@ -65,10 +66,10 @@ namespace Pchp.CodeAnalysis.Symbols
             };
         }
 
-        protected override IEnumerable<SourceParameterSymbol> BuildSrcParams(Signature signature, PHPDocBlock phpdocOpt = null)
+        protected override IEnumerable<SourceParameterSymbol> BuildSrcParams(Signature signature)
         {
             // [use params], [formal params]
-            return base.BuildSrcParams(UseParams.Concat(signature.FormalParams), phpdocOpt);
+            return base.BuildSrcParams(UseParams.Concat(signature.FormalParams));
         }
 
         internal override IList<Statement> Statements => _syntax.Body.Statements;
@@ -81,7 +82,7 @@ namespace Pchp.CodeAnalysis.Symbols
 
         internal override AstNode Syntax => _syntax;
 
-        internal override PHPDocBlock PHPDocBlock => _syntax.PHPDoc;
+        internal override IDocBlock PHPDocBlock => _syntax.PHPDoc;
 
         internal override SourceFileSymbol ContainingFile => Container.GetContainingFileSymbol();
 
@@ -126,7 +127,7 @@ namespace Pchp.CodeAnalysis.Symbols
         {
             _body = ImmutableArray.Create<Statement>(new JumpStmt(syntax.Expression.Span, JumpStmt.Types.Return, syntax.Expression));
             _useparams = EnumerateCapturedVariables(syntax)
-                .Select(v => new FormalParam(Span.Invalid, v.Value, Span.Invalid, null, FormalParam.Flags.Default, null))
+                .Select(v => new FormalParam(Span.Invalid, new VariableName(v.Value)))
                 .ToArray();
         }
 
@@ -141,7 +142,7 @@ namespace Pchp.CodeAnalysis.Symbols
             }
 
             // remove vars specified in parameters
-            foreach (var p in fn.Signature.FormalParams)
+            foreach (var p in fn.Signature.FormalParamsFixed())
             {
                 capturedvars.Remove(p.Name.Name);
             }

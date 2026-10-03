@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using Pchp.CodeAnalysis.Semantics;
 
 namespace Pchp.CodeAnalysis.Symbols
 {
@@ -162,7 +163,7 @@ namespace Pchp.CodeAnalysis.Symbols
                         ImmutableArray<KeyValuePair<string, TypedConstant>>.Empty);
                 }
             }
-
+            
             //
             yield break;
         }

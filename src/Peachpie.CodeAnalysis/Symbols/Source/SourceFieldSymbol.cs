@@ -13,6 +13,7 @@ using Devsense.PHP.Syntax.Ast;
 using Pchp.CodeAnalysis.Utilities;
 using System.Globalization;
 using System.Threading;
+using Devsense.PHP.Ast.DocBlock;
 
 namespace Pchp.CodeAnalysis.Symbols
 {
@@ -61,7 +62,7 @@ namespace Pchp.CodeAnalysis.Symbols
         /// <summary>
         /// Optional associated PHPDoc block defining the field type hint.
         /// </summary>
-        internal PHPDocBlock PHPDocBlock { get; }
+        internal IDocBlock PHPDocBlock { get; }
 
         /// <summary>
         /// Declared accessibility - private, protected or public.
@@ -70,12 +71,18 @@ namespace Pchp.CodeAnalysis.Symbols
 
         readonly BoundExpression _initializer;
 
+        /// <summary>
+        /// Optional. Typed constant or typed field.
+        /// In case of field, we must asusme the value can be referenced (wrapped into PhpAlias).
+        /// </summary>
+        readonly TypeRef _typeRef;
+
         ImmutableArray<AttributeData> _attributes;
 
         /// <summary>
         /// Gets enumeration of property source attributes.
         /// </summary>
-        public IEnumerable<SourceCustomAttribute> SourceAttributes => _attributes.OfType<SourceCustomAttribute>();
+        public IReadOnlyList<SourceCustomAttribute> SourceAttributes => _attributes.OfTypeToReadOnlyList<AttributeData, SourceCustomAttribute>();
 
         /// <summary>
         /// Gets value indicating whether this field redefines a field from a base type.
@@ -147,7 +154,10 @@ namespace Pchp.CodeAnalysis.Symbols
                         new SynthesizedPropertySymbol(
                             this.ContainingType, this.Name, false,
                             type, this.DeclaredAccessibility,
-                            getter: getter, setter: setter);
+                            getter: getter,
+                            setter: setter
+                        );
+
                     Interlocked.CompareExchange(ref _fieldAccessorProperty, fieldAccessorProperty, null);
                 }
 
@@ -158,9 +168,10 @@ namespace Pchp.CodeAnalysis.Symbols
 
         public SourceFieldSymbol(
             SourceTypeSymbol type, string name, Location location, Accessibility accessibility,
-            PHPDocBlock phpdoc, PhpPropertyKind kind,
+            IDocBlock phpdoc, PhpPropertyKind kind,
             BoundExpression initializer = null,
-            ImmutableArray<AttributeData> attributes = default)
+            ImmutableArray<AttributeData> attributes = default,
+            TypeRef typeRef = null)
         {
             Contract.ThrowIfNull(type);
             Contract.ThrowIfNull(name);
@@ -172,10 +183,11 @@ namespace Pchp.CodeAnalysis.Symbols
             _initializer = initializer;
             _location = location;
             _attributes = attributes.IsDefault ? ImmutableArray<AttributeData>.Empty : attributes;
+            _typeRef = typeRef;
             PHPDocBlock = phpdoc;
 
             // implicit attributes from PHPDoc
-            var deprecated = phpdoc?.GetElement<PHPDocBlock.DeprecatedTag>();
+            var deprecated = phpdoc.GetDocEntry(AstUtils.DeprecatedTagName);
             if (deprecated != null)
             {
                 // [ObsoleteAttribute(message, false)]
@@ -231,6 +243,12 @@ namespace Pchp.CodeAnalysis.Symbols
             //
             if ((IsConst || IsReadOnly) && Initializer != null)
             {
+                if (_typeRef != null)
+                {
+                    // PHP 8.3 typed class constant
+                    return DeclaringCompilation.GetTypeFromTypeRef(_typeRef, _containingType);
+                }
+                
                 // resolved type symbol if possible
                 if (Initializer.ResultType != null)
                 {
@@ -255,18 +273,6 @@ namespace Pchp.CodeAnalysis.Symbols
                 //return DeclaringCompilation.GetTypeFromTypeRef(typectx, Initializer.TypeRefMask);
             }
 
-            // PHPDoc @var type
-            if ((DeclaringCompilation.Options.PhpDocTypes & PhpDocTypes.FieldTypes) != 0)
-            {
-                var vartag = FindPhpDocVarTag();
-                if (vartag != null && vartag.TypeNamesArray.Length != 0)
-                {
-                    var dummyctx = TypeRefFactory.CreateTypeRefContext(_containingType);
-                    var tmask = PHPDoc.GetTypeMask(dummyctx, vartag.TypeNamesArray, NameUtils.GetNamingContext(_containingType.Syntax));
-                    return DeclaringCompilation.GetTypeFromTypeRef(dummyctx, tmask);
-                }
-            }
-
             // default
             return DeclaringCompilation.CoreTypes.PhpValue;
         }
@@ -286,42 +292,26 @@ namespace Pchp.CodeAnalysis.Symbols
         /// </summary>
         public override bool IsStatic => _fieldKind == PhpPropertyKind.AppStaticField || IsConst; // either field is CLR static field or constant (Literal field must be Static).
 
-        internal PHPDocBlock.TypeVarDescTag FindPhpDocVarTag()
-        {
-            if (PHPDocBlock != null)
-            {
-                foreach (var vartype in PHPDocBlock.Elements.OfType<PHPDocBlock.TypeVarDescTag>())
-                {
-                    if (string.IsNullOrEmpty(vartype.VariableName) || vartype.VariableName.Substring(1) == this.MetadataName)
-                    {
-                        return vartype;
-                    }
-                }
-            }
-
-            return null;
-        }
+        internal IDocEntry FindPhpDocVarTag() => PHPDocBlock.GetDocEntry("@var") ?? PHPDocBlock.GetDocEntry("@staticvar");
 
         public override string GetDocumentationCommentXml(CultureInfo preferredCulture = null, bool expandIncludes = false, CancellationToken cancellationToken = default(CancellationToken))
         {
-            var summary = string.Empty;
-
-            if (PHPDocBlock != null)
+            if (PHPDocBlock?.HasSummary(out var summary) == true)
             {
-                summary = PHPDocBlock.Summary;
-
                 if (string.IsNullOrWhiteSpace(summary))
                 {
                     // try @var or @staticvar:
                     var vartag = FindPhpDocVarTag();
                     if (vartag != null)
                     {
-                        summary = vartag.Description;
+                        summary = vartag.ToString();
                     }
                 }
+
+                return summary;
             }
 
-            return summary;
+            return string.Empty;
         }
     }
 }

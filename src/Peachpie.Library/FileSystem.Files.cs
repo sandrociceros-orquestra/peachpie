@@ -92,7 +92,11 @@ namespace Pchp.Library
             if (string.IsNullOrEmpty(path))
             {
                 wrapper = null;
-                PhpException.Throw(PhpError.Warning, Resources.LibResources.arg_empty, nameof(path));
+                if (!quiet)
+                {
+                    PhpException.Throw(PhpError.Warning, Resources.LibResources.arg_empty, nameof(path));
+                }
+
                 return false;
             }
 
@@ -133,6 +137,13 @@ namespace Pchp.Library
                 if (!quiet)
                 {
                     PhpException.Throw(PhpError.Warning, ErrResources.stream_stat_invalid_path, FileSystemUtils.StripPassword(path));
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                if (!quiet)
+                {
+                    PhpException.Throw(PhpError.Warning, ErrResources.stream_file_access_denied, FileSystemUtils.StripPassword(path));
                 }
             }
             catch (System.Exception e)
@@ -223,7 +234,7 @@ namespace Pchp.Library
         #region file_exists, touch
 
         /// <summary>
-		/// Checks whether a file exists
+		/// Checks whether a file or a directory exists.
 		/// </summary>
         /// <param name="ctx">Runtime context.</param>
 		/// <param name="path">The file to be checked.</param>
@@ -232,13 +243,26 @@ namespace Pchp.Library
         {
             if (!string.IsNullOrEmpty(path) && ResolvePath(ctx, ref path, true, out var wrapper))
             {
-                if (wrapper.Scheme == FileStreamWrapper.scheme && File.Exists(path)) // faster than calling full stat
+                if (wrapper.Scheme == FileStreamWrapper.scheme)
                 {
-                    return true;
-                }
+                    // faster than calling full stat
+                    if (CurrentPlatform.GetFileAttributes(path, out var _, out _))
+                    {
+                        return true;
+                    }
 
-                var stat = wrapper.Stat(ctx.RootPath, path, StreamStatOptions.Quiet, StreamContext.Default);
-                return stat.IsValid; // file or directory
+                    // check a compiled script
+                    if (Context.TryResolveScript(ctx.RootPath, path).IsValid ||
+                        Context.TryGetScriptsInDirectory(ctx.RootPath, path, out _))
+                    {
+                        return true;
+                    }
+                }
+                else
+                {
+                    var stat = wrapper.Stat(ctx.RootPath, path, StreamStatOptions.Quiet, StreamContext.Default);
+                    return stat.IsValid; // file or directory
+                }
             }
 
             return false;

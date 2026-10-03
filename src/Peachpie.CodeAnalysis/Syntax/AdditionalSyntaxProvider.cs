@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using Devsense.PHP.Ast.DocBlock;
 using Devsense.PHP.Syntax;
 using Devsense.PHP.Syntax.Ast;
 using Devsense.PHP.Text;
@@ -9,6 +10,7 @@ using Microsoft.CodeAnalysis;
 using Pchp.CodeAnalysis;
 using Pchp.CodeAnalysis.Symbols;
 using Peachpie.CodeAnalysis.Utilities;
+using static Peachpie.CodeAnalysis.Syntax.PhpTokenProvider;
 using TSpan = Devsense.PHP.Text.Span;
 using TValue = Devsense.PHP.Syntax.SemanticValueType;
 
@@ -39,17 +41,17 @@ namespace Peachpie.CodeAnalysis.Syntax
 
         #region ITokenProvider
 
-        public TValue TokenValue
-        {
-            get => _provider.TokenValue;
-            set => _provider.TokenValue = value;
-        }
+        public TValue TokenValue => _provider.TokenValue;
 
         public TSpan TokenPosition => _provider.TokenPosition;
 
         public string TokenText => _provider.TokenText;
 
-        public PHPDocBlock DocComment { get => _provider.DocComment; set => _provider.DocComment = value; }
+        public ReadOnlySpan<char> TokenTextSpan => _provider.TokenTextSpan;
+
+        public ReadOnlyMemory<char> TokenSource => _provider.TokenSource;
+
+        public IDocBlock DocComment { get => _provider.DocComment; set => _provider.DocComment = value; }
 
         public int GetNextToken()
         {
@@ -145,9 +147,9 @@ namespace Peachpie.CodeAnalysis.Syntax
             if (t == Tokens.T_FN && (_lastToken == Tokens.T_NS_SEPARATOR || _lastToken == Tokens.T_CLASS))
             {
                 // TODO: warning, use of reserved identifier "fn"
-                var text = _provider.TokenText;
+                var source = _provider.TokenSource;
 
-                _provider.UpdateToken(new CompleteToken(Tokens.T_STRING, new TValue { String = text }, _provider.TokenPosition, text));
+                _provider.UpdateToken(new TokenSnapshot(Tokens.T_STRING, _provider.TokenPosition, source, new TValue { String = source.ToString() }));
                 return true;
             }
 
@@ -427,13 +429,13 @@ namespace Peachpie.CodeAnalysis.Syntax
         /// Matches token at position and advances the position to next token.
         /// If token does not match, function return <c>false</c> and position is not advanced.
         /// </summary>
-        bool MatchToken(ref int idx, Tokens t) => MatchToken(ref idx, t, out var _, false);
+        bool MatchToken(ref int idx, Tokens t) => MatchToken(ref idx, t, out var _);
 
         /// <summary>
         /// Matches token at position and advances the position to next token.
         /// If token does not match, function return <c>false</c> and position is not advanced.
         /// </summary>
-        bool MatchToken(ref int idx, Tokens t, out CompleteToken token, bool ensureTokenText = false)
+        bool MatchToken(ref int idx, Tokens t, out TokenSnapshot token)
         {
             var oldidx = idx;
 
@@ -441,11 +443,6 @@ namespace Peachpie.CodeAnalysis.Syntax
 
             if (token.Token == t)
             {
-                if (ensureTokenText)
-                {
-                    token = _provider.WithTokenText(token);
-                }
-
                 return true;
             }
 
@@ -454,9 +451,9 @@ namespace Peachpie.CodeAnalysis.Syntax
             return false;
         }
 
-        CompleteToken NextToken(ref int idx)
+        TokenSnapshot NextToken(ref int idx)
         {
-            CompleteToken token;
+            TokenSnapshot token;
 
             do
             {

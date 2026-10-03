@@ -10,6 +10,7 @@ using System.Diagnostics;
 using Devsense.PHP.Syntax;
 using Devsense.PHP.Syntax.Ast;
 using Devsense.PHP.Text;
+using Devsense.PHP.Ast.DocBlock;
 
 namespace Pchp.CodeAnalysis.Symbols
 {
@@ -40,10 +41,10 @@ namespace Pchp.CodeAnalysis.Symbols
             int index = 0;
 
             // Context <ctx>
-            yield return new SpecialParameterSymbol(this, DeclaringCompilation.CoreTypes.Context, SpecialParameterSymbol.ContextName, index++);
-
+            yield return new SpecialParameterSymbol(this, DeclaringCompilation.CoreTypes.Context, SpecialParameterSymbol.ContextName, index++, notNull: true);
+            
             // PhpArray <locals>
-            yield return new SpecialParameterSymbol(this, DeclaringCompilation.CoreTypes.PhpArray, SpecialParameterSymbol.LocalsName, index++);
+            yield return new SpecialParameterSymbol(this, DeclaringCompilation.CoreTypes.PhpArray, SpecialParameterSymbol.LocalsName, index++, notNull: true);
 
             // object @this
             yield return new SpecialParameterSymbol(this, DeclaringCompilation.CoreTypes.Object, SpecialParameterSymbol.ThisName, index++);
@@ -52,7 +53,7 @@ namespace Pchp.CodeAnalysis.Symbols
             yield return new SpecialParameterSymbol(this, DeclaringCompilation.CoreTypes.RuntimeTypeHandle, SpecialParameterSymbol.SelfName, index++);
         }
 
-        protected override IEnumerable<SourceParameterSymbol> BuildSrcParams(Signature signature, PHPDocBlock phpdocOpt = null)
+        protected override IEnumerable<SourceParameterSymbol> BuildSrcParams(Signature signature)
         {
             return Array.Empty<SourceParameterSymbol>();
         }
@@ -101,7 +102,7 @@ namespace Pchp.CodeAnalysis.Symbols
 
         internal override AstNode Syntax => _file.SyntaxTree.Root;
 
-        internal override PHPDocBlock PHPDocBlock => null;
+        internal override IDocBlock PHPDocBlock => null;
 
         internal override PhpCompilation DeclaringCompilation => _file.DeclaringCompilation;
 

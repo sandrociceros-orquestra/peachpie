@@ -491,6 +491,12 @@ namespace Pchp.Core
             {
                 return (PhpValue)PhpArray.Union(arr_x, arr_y);
             }
+            else if (x.AsObject() is IClrEvent clrEvent)
+            {
+                // event += function
+                clrEvent.Add(y.AsCallable());
+                return x; // returns itself
+            }
 
             //PhpException.UnsupportedOperandTypes();
             //return 0;
@@ -1313,7 +1319,7 @@ namespace Pchp.Core
 
         public override int GetHashCode() => unchecked((int)_long);
 
-        public override bool Equals(object obj) => obj is PhpNumber num && Equals(num);
+        public override bool Equals(object? obj) => obj is PhpNumber num && Equals(num);
 
         #endregion
 

@@ -389,7 +389,7 @@ namespace Pchp.Library
         public static string ftp_mkdir(PhpResource ftp_stream, string directory)
         {
             var resource = ValidateFtpResource(ftp_stream);
-            
+
             if (resource != null && FtpCommand(directory, path => resource.Client.CreateDirectory(path)))
             {
                 return directory;
@@ -816,7 +816,7 @@ namespace Pchp.Library
             {
                 // Use the async version to prevent calling Write on the output stream, as it might be not allowed
                 // (e.g. in Kestrel)
-                return resource.Client.DownloadAsync(stream.RawStream, remotefile, resumepos).Result;
+                return resource.Client.DownloadStream(stream.RawStream, remotefile, resumepos);
             }
             catch (FtpException ex)
             {
@@ -864,7 +864,7 @@ namespace Pchp.Library
 
             try
             {
-                return resource.Client.Upload(stream.RawStream, remote_file, FtpRemoteExists.Overwrite) != FtpStatus.Failed;
+                return resource.Client.UploadStream(stream.RawStream, remote_file, FtpRemoteExists.Overwrite) != FtpStatus.Failed;
             }
             catch (FtpException ex)
             {
@@ -923,7 +923,7 @@ namespace Pchp.Library
         /// Loads file on server.
         /// </summary>
         /// <returns>Returns TRUE on success or FALSE on failure.</returns>
-        private static bool Put(Context context, PhpResource ftp_stream, string remote_file, string local_file, int mode, bool append, int startpos)
+        private static bool Put(Context context, PhpResource ftp_stream, string remote_file, string local_file, int mode, bool addToEnd, int startpos)
         {
             var resource = ValidateFtpResource(ftp_stream);
             if (resource == null)
@@ -944,7 +944,7 @@ namespace Pchp.Library
 
             try
             {
-                return resource.Client.UploadFile(localPath, remote_file, append ? FtpRemoteExists.Append : FtpRemoteExists.Overwrite) != FtpStatus.Failed;
+                return resource.Client.UploadFile(localPath, remote_file, addToEnd ? FtpRemoteExists.AddToEnd : FtpRemoteExists.Overwrite) != FtpStatus.Failed;
             }
             /* FtpException everytime wraps other exceptions (Message from server). 
             * https://github.com/robinrodricks/FluentFTP/blob/master/FluentFTP/Client/FtpClient_HighLevelUpload.cs#L595 */
@@ -1019,20 +1019,23 @@ namespace Pchp.Library
         private static PhpArray GetArrayOfInputMLSD(FtpListItem[] list)
         {
             var result = new PhpArray(list.Length);
-            // For optimalization we will asume that every file has some number of properties (depends on system).
-            int numberOfItems = 7;
 
             foreach (var item in list)
             {
+                // For optimalization we will asume that
+                // every file has some number of properties (depends on system).
+                const int numberOfItems = 7;
                 var itemArr = new PhpArray(numberOfItems);
 
                 // name
-                if (!String.IsNullOrEmpty(item.Name))
+                if (!string.IsNullOrEmpty(item.Name))
+                {
                     itemArr.Add("name", item.Name);
+                }
                 // type of file
                 itemArr.Add("type", item.Type.ToString());
                 // modify
-                if (item.Modified != null)
+                if (item.Modified != default(System.DateTime))
                 {
                     itemArr.Add("modify", DateTimeUtils.UtcToUnixTimeStamp(item.Modified.ToUniversalTime()));
                 }
@@ -1042,17 +1045,17 @@ namespace Pchp.Library
                     itemArr.Add("UNIX.mode", ConvertUnixModeFromInput(item.Chmod));
                 }
                 // owner perm
-                if (!String.IsNullOrEmpty(item.RawOwner))
+                if (!string.IsNullOrEmpty(item.RawOwner))
                 {
                     itemArr.Add("UNIX.owner", item.RawOwner);
                 }
                 // group perm
-                if (!String.IsNullOrEmpty(item.RawGroup))
+                if (!string.IsNullOrEmpty(item.RawGroup))
                 {
                     itemArr.Add("UNIX.group", item.RawGroup);
                 }
                 // size
-                if (item.Size != -1)
+                if (item.Size >= 0)
                 {
                     itemArr.Add("size", item.Size);
                 }
@@ -1221,7 +1224,7 @@ namespace Pchp.Library
 
             resource.PrepareForPendingOperation(mode);
 
-            resource.PendingOperationTask = resource.Client.UploadAsync(stream.RawStream, remote_file, FtpRemoteExists.Overwrite, false, null, resource.TokenSource.Token);
+            resource.PendingOperationTask = resource.Client.UploadStreamAsync(stream.RawStream, remote_file, FtpRemoteExists.Overwrite, false, null, resource.TokenSource.Token);
 
             return TasksGetInfo(resource);
         }
@@ -1286,7 +1289,7 @@ namespace Pchp.Library
 
             resource.PrepareForPendingOperation(mode);
 
-            resource.PendingOperationTask = resource.Client.DownloadAsync(stream.RawStream, remote_file, resumepos, null, resource.TokenSource.Token);
+            resource.PendingOperationTask = resource.Client.DownloadStreamAsync(stream.RawStream, remote_file, resumepos, null, resource.TokenSource.Token);
 
             return TasksGetInfo(resource);
         }

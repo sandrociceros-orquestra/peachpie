@@ -4,8 +4,10 @@
 
     <!-- version -->
     <Version Condition=" '$(APPVEYOR_BUILD_VERSION)'!='' ">$(APPVEYOR_BUILD_VERSION)</Version>
-    <Version Condition=" '$(Version)'=='' ">1.0.0-dev</Version>
+    <Version Condition=" '$(Version)'=='' ">1.2.0-dev</Version>
+    <TargetFrameworks>net6.0</TargetFrameworks>
     <PackageVersion>$(Version)</PackageVersion>
+    <AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
 
     <!-- metadata generation -->
     <GenerateAssemblyVersionAttribute>true</GenerateAssemblyVersionAttribute>
@@ -38,9 +40,10 @@
   <!-- packages version -->
   <PropertyGroup>
     
-    <PeachpieLibraryRegularExpressionsVersion>1.6.0</PeachpieLibraryRegularExpressionsVersion>
+    <PeachpieLibraryRegularExpressionsVersion>1.7.1</PeachpieLibraryRegularExpressionsVersion>
     <MySqlConnectorVersion>2.0.0</MySqlConnectorVersion>
-    <ParserVersion>8.1.8808</ParserVersion>
+    <ParserVersion>8.5.18992</ParserVersion>
+    <PeachpieMicrosoftCodeAnalysisVersion>3.7.4</PeachpieMicrosoftCodeAnalysisVersion>
     
   </PropertyGroup>
 
@@ -49,7 +52,7 @@
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/peachpiecompiler/peachpie</RepositoryUrl>
     <PackageProjectUrl>https://github.com/peachpiecompiler/peachpie</PackageProjectUrl>
-    <PackageOutputPath>$(MSBuildThisFileDirectory).nugs</PackageOutputPath>
+    <PackageOutputPath Condition=" '$(PackageOutputPath)'=='' ">$(MSBuildThisFileDirectory).nugs</PackageOutputPath>
     <PackageIconUrl>https://github.com/peachpiecompiler/peachpie/raw/master/docs/logos/round-orange-196x196.png</PackageIconUrl>
     <Authors>iolevel,peachpiecompiler</Authors>
     <NoWarn>$(NoWarn),NU5048</NoWarn>

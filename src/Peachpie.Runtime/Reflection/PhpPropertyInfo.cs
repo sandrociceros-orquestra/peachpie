@@ -41,7 +41,7 @@ namespace Pchp.Core.Reflection
                 var pctx = Expression.Parameter(typeof(Context));
                 var pinstance = Expression.Parameter(typeof(object));
 
-                var expr = Bind(pctx, Expression.Convert(pinstance, Field.DeclaringType));
+                var expr = Bind(pctx, Expression.Convert(pinstance, ContainingType.Type));
                 if (access == AccessMask.Read)
                 {
                     expr = ConvertExpression.BindToValue(expr);
@@ -83,7 +83,7 @@ namespace Pchp.Core.Reflection
                     var pvalue = Expression.Parameter(typeof(PhpValue));
 
                     // field_expr: <instance>.<field>
-                    var field_expr = Bind(pctx, Expression.Convert(pinstance, Field.DeclaringType));
+                    var field_expr = Bind(pctx, Expression.Convert(pinstance, ContainingType.Type));
 
                     // expr: <field> := <value>
                     // var expr = BinderHelpers.BindAccess(field_expr, pctx, AccessMask.Write, pvalue); // <-- does not allow passing PhpAlias
@@ -235,7 +235,7 @@ namespace Pchp.Core.Reflection
                 {
                     var pinstance = Expression.Parameter(typeof(object));
 
-                    var expr = Bind(null!, Expression.Convert(pinstance, Property.DeclaringType));
+                    var expr = Bind(null!, Expression.Convert(pinstance, ContainingType.Type));
                     expr = ConvertExpression.BindToValue(expr);
 
                     //
@@ -259,7 +259,7 @@ namespace Pchp.Core.Reflection
                     var pvalue = Expression.Parameter(typeof(PhpValue));
 
                     // expr: <instance>.<field>
-                    var expr = Bind(pctx, Expression.Convert(pinstance, Property.DeclaringType));
+                    var expr = Bind(pctx, Expression.Convert(pinstance, ContainingType.Type));
 
                     // expr: <property> := <value>
                     expr = Expression.Assign(expr, ConvertExpression.Bind(pvalue, expr.Type, pctx));    // TODO: PHP semantic (Operators.SetValue)
@@ -275,8 +275,9 @@ namespace Pchp.Core.Reflection
             {
                 get
                 {
+                    var getter = Property.GetMethod ?? throw new InvalidOperationException($"getter is null");
                     var flags = (FieldAttributes)0;
-                    var attr = Property.GetMethod.Attributes;
+                    var attr = getter.Attributes;
 
                     switch (attr & MethodAttributes.MemberAccessMask)
                     {
@@ -313,9 +314,16 @@ namespace Pchp.Core.Reflection
 
             public override Expression Bind(Expression ctx, Expression target)
             {
-                return Expression.Property(
-                    Property.GetMethod.IsStatic ? null : target,
-                    Property);
+                var getter = Property.GetMethod;
+                if (getter != null)
+                {
+                    return Expression.Property(
+                        getter.IsStatic ? null : target,
+                        Property
+                    );
+                }
+
+                throw new InvalidOperationException($"Property '{ContainingType.Name}::{Property.Name}' does not have a getter.");
             }
         }
 
@@ -340,6 +348,88 @@ namespace Pchp.Core.Reflection
 
             public override FieldAttributes Attributes => FieldAttributes.Public;
 
+        }
+
+        #endregion
+
+        #region ClrEvent
+
+        internal sealed class ClrEvent : PhpPropertyInfo
+        {
+            Type ConstructedClrEventType
+            {
+                get
+                {
+                    return _constructedClrEventType ??= typeof(ClrEvent<>).MakeGenericType(Event.EventHandlerType ?? throw new NotSupportedException());
+                }
+            }
+            Type? _constructedClrEventType;
+
+            ConstructorInfo ConstructorInfo
+                => ConstructedClrEventType.GetConstructor(BindingFlags.NonPublic | BindingFlags.DeclaredOnly | BindingFlags.Instance, null, new[] { typeof(Context), typeof(object), typeof(EventInfo) }, null)
+                ?? throw new InvalidOperationException()
+                ;
+
+            public EventInfo Event { get; }
+
+            public override MemberInfo? Member => Event;
+
+            public ClrEvent(PhpTypeInfo tinfo, EventInfo @event)
+                : base(tinfo)
+            {
+                Event = @event ?? throw new ArgumentNullException(nameof(@event));
+            }
+
+            public override FieldAttributes Attributes
+            {
+                get
+                {
+                    FieldAttributes attrs = 0;
+
+                    if (Event.AddMethod != null)
+                    {
+                        attrs = (FieldAttributes)(Event.AddMethod.Attributes & (MethodAttributes.MemberAccessMask | MethodAttributes.Static));
+                    }
+                    else
+                    {
+                        attrs = FieldAttributes.Private;
+                    }
+
+                    return attrs;
+                }
+            }
+
+            public override bool IsReadOnly => true;
+
+            public override bool IsConstant => false;
+
+            public override bool IsRuntimeProperty => false;
+
+            public override string PropertyName => Event.Name;
+
+            public override Type PropertyType => ConstructedClrEventType;
+
+            public override PhpValue GetValue(Context ctx, object instance)
+            {
+                return PhpValue.FromClass(
+                    Activator.CreateInstance(ConstructedClrEventType, ctx, instance, Event)
+                );
+            }
+
+            public override void SetValue(Context ctx, object instance, PhpValue value) => throw new NotSupportedException();
+
+            public override Expression Bind(Expression ctx, Expression target)
+            {
+                // new ClrEvent<TDelegate>( ctx, target, Event )
+                return Expression.New(
+                    ConstructorInfo,
+                    ctx,
+                    Expression.Convert(target, Cache.Types.Object[0]),
+                    Expression.Constant(Event)
+                );
+            }
+
+            public override IPhpArray EnsureArray(Context ctx, object instance) => throw new NotSupportedException();
         }
 
         #endregion

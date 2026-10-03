@@ -13,6 +13,7 @@ using Devsense.PHP.Syntax;
 using Pchp.CodeAnalysis.CodeGen;
 using System.Diagnostics;
 using Peachpie.CodeAnalysis;
+using Devsense.PHP.Ast.DocBlock;
 
 namespace Pchp.CodeAnalysis.Symbols
 {
@@ -90,7 +91,7 @@ namespace Pchp.CodeAnalysis.Symbols
 
         internal override AstNode Syntax => _syntax;
 
-        internal override PHPDocBlock PHPDocBlock => _syntax.PHPDoc;
+        internal override IDocBlock PHPDocBlock => _syntax.PHPDoc;
 
         internal override IList<Statement> Statements => _syntax.Body.Statements;
 
@@ -111,7 +112,7 @@ namespace Pchp.CodeAnalysis.Symbols
                 }
 
                 // __autoload must have exactly one parameter
-                if (_syntax.Signature.FormalParams.Length != 1)
+                if (_syntax.Signature.FormalParamsFixed().Length != 1)
                 {
                     diagnostic.Add(this, _syntax.Signature.Span.ToTextSpan(), Errors.ErrorCode.ERR_MustTakeArgs, "Function", this.QualifiedName.ToString(), 1);
                 }

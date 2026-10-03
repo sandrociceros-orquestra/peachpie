@@ -1,4 +1,5 @@
 ﻿using Pchp.Core;
+using Pchp.Core.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -233,14 +234,14 @@ namespace Pchp.Library
                 return min;
             }
 
-            var bytes = new byte[sizeof(long)]; // TODO: NETSTANDARD2.1 // Span<byte> bytes = stackalloc byte[sizeof(long)];
+            Span<byte> bytes = stackalloc byte[sizeof(long)];
 
             using (var rng = new RNGCryptoServiceProvider())
             {
                 rng.GetBytes(bytes);
             }
 
-            var value = (decimal)BitConverter.ToUInt64(bytes, 0);
+            var value = (decimal)BitConverter.ToUInt64(bytes);
 
             // adjust to min/max
             var length = (decimal)max - min + 1;
@@ -563,7 +564,7 @@ namespace Pchp.Library
                 return "0";
             }
 
-            var sb = StringBuilderUtilities.Pool.Get();
+            var sb = ObjectPools.GetStringBuilder();
 
             while (Math.Abs(fvalue) >= 1)
             {
@@ -575,7 +576,7 @@ namespace Pchp.Library
                 fvalue /= toBase;
             }
 
-            return Core.Utilities.StringUtils.Reverse(StringBuilderUtilities.GetStringAndReturn(sb));
+            return Core.Utilities.StringUtils.Reverse(ObjectPools.GetStringAndReturn(sb));
         }
 
         /// <summary>

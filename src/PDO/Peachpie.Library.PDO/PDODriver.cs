@@ -32,7 +32,15 @@ namespace Peachpie.Library.PDO
         {
             get
             {
-                return this.DbFactory.GetType().Assembly.GetName().Version.ToString();
+                var version = this.DbFactory.GetType().Assembly.GetName().Version;
+                if (version != null)
+                {
+                    return version.ToString();
+                }
+                else
+                {
+                    return string.Empty;
+                }
             }
         }
 
@@ -60,6 +68,11 @@ namespace Peachpie.Library.PDO
         public virtual DbConnection OpenConnection(ReadOnlySpan<char> dsn, string? user, string? password, PhpArray options)
         {
             var connection = this.DbFactory.CreateConnection();
+            if (connection == null)
+            {
+                throw new InvalidOperationException(nameof(connection));
+            }
+
             connection.ConnectionString = this.BuildConnectionString(dsn, user, password, options);
             connection.Open();
             return connection;
@@ -141,7 +154,7 @@ namespace Peachpie.Library.PDO
 
         private class StatementStringRewriter : StatementStringParser, IDisposable
         {
-            readonly StringBuilder _stringBuilder = StringBuilderUtilities.Pool.Get();
+            readonly StringBuilder _stringBuilder = ObjectPools.GetStringBuilder();
             int _unnamedParamIndex = 0;
 
             public string RewrittenQueryString => _stringBuilder.ToString();
@@ -200,7 +213,7 @@ namespace Peachpie.Library.PDO
 
             void IDisposable.Dispose()
             {
-                StringBuilderUtilities.Pool.Return(_stringBuilder);
+                ObjectPools.Return(_stringBuilder);
             }
         }
 
